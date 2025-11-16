@@ -493,9 +493,34 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// UI: Inventory strip (bottom-left)
 	g.drawInventory(screen)
+	g.drawInventoryHelp(screen)
 
 	g.drawTooltip(screen)
 }
+
+// drawInventoryHelp renders control hints under the inventory bar.
+func (g *Game) drawInventoryHelp(screen *ebiten.Image) {
+	if g.uiFace == nil {
+		return
+	}
+
+	msg := "[ ]  Cycle  |  ENTER  Use  |  Q  Drop  |  E  Pick Up"
+	white := color.NRGBA{230, 230, 240, 255}
+
+	w := len(msg)*6 -16
+	h := 18
+	x := 8
+	y := ViewH -4 // just under the inventory strip
+
+	bg := ebiten.NewImage(w, h)
+	bg.Fill(color.NRGBA{0, 0, 0, 140})
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(x-4), float64(y-10))
+	screen.DrawImage(bg, op)
+
+	text.Draw(screen, msg, g.uiFace, x, y, white)
+}
+
 
 func (g *Game) drawTooltip(screen *ebiten.Image) {
     if g.tooltipText == "" || g.uiFace == nil {
