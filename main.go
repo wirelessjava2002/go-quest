@@ -20,6 +20,9 @@ import (
 	"example.com/go-quest/items"
 	"example.com/go-quest/player"
 	"example.com/go-quest/dungeon"
+	"example.com/go-quest/rpg"
+	"example.com/go-quest/enemies"
+
 )
 
 /*
@@ -82,6 +85,9 @@ type Game struct {
 
 	// Player
 	Player *player.Player
+
+	// Enimies
+	Enemies []enemies.Enemy
 
 	// Timer (water shimmer, etc.)
 	time float64
@@ -148,6 +154,11 @@ func NewGame() *Game {
 		g.imgWall, _ = g.Atlas.Get("wall")
 		g.imgWater, _ = g.Atlas.Get("water")
 		g.imgDoor, _ = g.Atlas.Get("door")
+
+		// enemies
+		_ = g.Atlas.AddGridTile("enemy.slime", "tiles", 0, 2)
+		_ = g.Atlas.AddGridTile("enemy.goblin", "tiles", 1, 2)
+
 	}
 
 	// Optional: standalone 32x32 player.png (register; ok if missing)
@@ -164,9 +175,9 @@ func NewGame() *Game {
 	g.Player = player.New(pImg) // default speed is set in player.New()
 
 	// Example mods (if your player package exposes these)
-	g.Player.Mods = []player.Modifier{
-		player.Flat{Attack: 3, MoveSpeed: 20}, // Leather Boots of Haste
-		player.Mult{SpeedMul: 1.10},           // Minor Haste buff (+10%)
+	g.Player.Mods = []rpg.Modifier{
+		rpg.Flat{Attack: 3, MoveSpeed: 20}, // Leather Boots of Haste
+		rpg.Mult{SpeedMul: 1.10},           // Minor Haste buff (+10%)
 	}
 	g.Player.RecomputeStats()
 
@@ -198,6 +209,25 @@ placed:
 	// Spawn a couple of demo items on the ground (change coords to somewhere reachable)
 	g.spawnItem("health_potion", 10, 10)
 	g.spawnItem("boots_haste", 14, 12)
+
+	// Enemies
+	ptx := int((g.Player.X + TileSize/2) / TileSize)
+	pty := int((g.Player.Y + TileSize/2) / TileSize)
+	e1 := enemies.New("slime", g.Atlas)
+	e1.SetPos(float64((ptx+3)*TileSize), float64(pty*TileSize))
+	g.Enemies = append(g.Enemies, e1)
+
+	e2 := enemies.New("goblin", g.Atlas)
+	e2.SetPos(float64((ptx+6)*TileSize), float64(pty*TileSize))
+	g.Enemies = append(g.Enemies, e2)
+
+	// spawn some enemies for testing — e.g., 40 random monsters
+	g.spawnEnemiesRandom(40, nil) // nil -> choose from all registered types
+
+	// OR spawn a weighted mix:
+	// g.spawnEnemiesRandom(20, []string{"slime"})
+	// g.spawnEnemiesRandom(10, []string{"goblin"})
+
 
 	return g
 }
@@ -293,6 +323,58 @@ func (g *Game) Update() error {
 		t := g.at(tx, ty)
 		return t != TWall && t != TWater
 	})
+
+	// --- Player Attack ---
+	didAttack := false
+	if inpututil.IsKeyJustPressed(ebiten.KeySpace) && g.Player.CanAttack() {
+		didAttack = true
+		g.Player.DoAttack()
+	}
+
+
+	// Update enemies
+	for i := 0; i < len(g.Enemies); i++ {
+		ee := g.Enemies[i]
+		if !ee.IsAlive() {
+			// remove dead enemy
+			g.Enemies = append(g.Enemies[:i], g.Enemies[i+1:]...)
+			i--
+			continue
+		}
+
+		// update AI
+		ee.Update(dt, g.Player.X, g.Player.Y, func(tx, ty int) bool {
+			if tx < 0 || ty < 0 || tx >= g.W || ty >= g.H {
+				return false
+			}
+			t := g.at(tx, ty)
+			return t != TWall && t != TWater
+		})
+
+		// enemy → player attacks (already implemented)
+		if ee.AttackIfInRange(g.Player.X, g.Player.Y) {
+			dmg := float64(ee.Stats().Attack) * 0.5
+			if dmg <= 0 { dmg = 4 }
+			g.Player.TakeDamage(dmg)
+		}
+
+		// --- NEW: player → enemy attack ---
+		if didAttack {
+			// distance from player to enemy
+			dx := (ee.X() - g.Player.X)
+			dy := (ee.Y() - g.Player.Y)
+			dist := math.Hypot(dx, dy)
+
+			if dist <= g.Player.AttackRangePx() {
+				// deal damage
+				dmg := g.Player.AttackDamage()
+				ee.TakeDamage(dmg)
+
+				// optional: add a knockback or flash here
+			}
+		}
+	}
+
 
 	// --- Inventory interactions ---
 
@@ -482,6 +564,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			img := ebiten.NewImage(TileSize, TileSize)
 			img.Fill(color.NRGBA{240, 220, 80, 255})
 			screen.DrawImage(img, op)
+		}
+	}
+
+	// Draw enemies
+	for _, ee := range g.Enemies {
+		if ee.IsAlive() {
+			ee.Draw(screen, g.CamXpx, g.CamYpx)
+			// optionally draw a tiny HP bar above them
+			s := ee.Stats()
+			hpx := ee.X() - g.CamXpx
+			hpy := ee.Y() - g.CamYpx - 10
+			pct := clamp01(s.HP / float64(s.HPMax))
+			drawBar(screen, int(hpx-16), int(hpy-6), 32, 6, pct,
+				color.NRGBA{200, 40, 40, 255}, color.NRGBA{60, 20, 20, 255})
 		}
 	}
 
@@ -789,6 +885,96 @@ func (g *Game) clampCamPx() {
 	}
 }
 
+// pick a random floor tile and spawn enemies there.
+func (g *Game) spawnEnemiesRandom(n int, allowedTypes []string) {
+    if n <= 0 {
+        return
+    }
+
+    // build list of candidate floor tile coords
+    candidates := make([]struct{ x, y int }, 0, 1024)
+    for y := 0; y < g.H; y++ {
+        for x := 0; x < g.W; x++ {
+            if g.at(x, y) == TFloor {
+                // avoid spawning on player tile
+                px := int((g.Player.X + TileSize/2) / TileSize)
+                py := int((g.Player.Y + TileSize/2) / TileSize)
+                if x == px && y == py {
+                    continue
+                }
+                // skip tiles that already hold an item or enemy
+                if g.tileHasItemOrEnemy(x, y) {
+                    continue
+                }
+                candidates = append(candidates, struct{ x, y int }{x, y})
+            }
+        }
+    }
+
+    if len(candidates) == 0 {
+        return
+    }
+
+    // fallback: if no allowedTypes provided, choose from registry
+    types := allowedTypes
+    if len(types) == 0 {
+        types = enemies.AllIDs()
+    }
+    if len(types) == 0 {
+        log.Println("no enemy types registered")
+        return
+    }
+
+	for i := 0; i < n && len(candidates) > 0; i++ {
+
+		// pick a candidate tile
+		idx := rand.IntN(len(candidates))
+		c := candidates[idx]
+
+		// pick random enemy type
+		et := types[rand.IntN(len(types))]
+		e := enemies.New(et, g.Atlas)
+		if e == nil {
+			// if enemy type is not registered, skip
+			// but don’t crash
+			continue
+		}
+
+		// center enemy on tile (px, py)
+		px := float64(c.x*TileSize + TileSize/2)
+		py := float64(c.y*TileSize + TileSize/2)
+		e.SetPos(px, py)
+
+		g.Enemies = append(g.Enemies, e)
+
+		// remove tile from candidate list so we don’t spawn duplicates there
+		candidates[idx] = candidates[len(candidates)-1]
+		candidates = candidates[:len(candidates)-1]
+	}
+
+}
+
+// helper: check if a tile already contains an item or enemy
+func (g *Game) tileHasItemOrEnemy(tx, ty int) bool {
+    // item check
+    for _, it := range g.ItemsOnGround {
+        if it.X == tx && it.Y == ty {
+            return true
+        }
+    }
+    // enemy check: convert enemy pixel pos to tile coords
+    for _, e := range g.Enemies {
+        ex := int((e.X()) / TileSize)
+        ey := int((e.Y()) / TileSize)
+        if ex == tx && ey == ty {
+            return true
+        }
+    }
+    // you can also check player here, but spawnEnemiesRandom already avoids player tile
+    return false
+}
+
+
 /* =========================
    Misc helpers
    ========================= */
@@ -813,6 +999,9 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+func abs(a int) int { if a < 0 { return -a }; return a }
+
 
 /* =========================
    Entry point

@@ -1,4 +1,4 @@
-package player
+package rpg
 
 // Stats are the *computed* combat numbers derived from Attributes (+ mods).
 type Stats struct {

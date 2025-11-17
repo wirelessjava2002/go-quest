@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"example.com/go-quest/rpg"
 )
 
 // Player holds position (in pixels), movement speed, and an optional sprite.
@@ -14,32 +15,36 @@ type Player struct {
 	Img   *ebiten.Image // optional 32x32 image; if nil we draw a blue square
 	time  float64       // local timer (for simple effects if you want)
 
-	Attr  Attributes
-	Stats Stats
-	Mods  []Modifier // equipment/buffs currently applied
+	Attr  rpg.Attributes
+	Stats rpg.Stats
+	Mods  []rpg.Modifier // equipment/buffs currently applied
 
 	// Stamina recovery behaviour
 	stamRecoverDelay float64 // seconds to wait after moving before regen
 	stamRecoverTimer float64 // counts down to 0, then regen resumes
+
+	attackTimer float64
+	attackCooldown float64
 }
 
 // New creates a player with a given sprite (can be nil). Speed is px/s.
 func New(img *ebiten.Image) *Player {
 	p := &Player{
 		Img: img,
-		Attr: Attributes{
+		Attr: rpg.Attributes{
 			Level: 1, Str: 4, Dex: 6, Int: 3, Vit: 5, Wis: 3, Lck: 2,
 		},
 	}
 	// Initial compute
 	p.RecomputeStats()
 	p.stamRecoverDelay = 0.6 // ~600ms feels good
+	p.attackCooldown = 0.4 // 400 ms per swing
 	return p
 }
 
 // RecomputeStats recalculates Stats from Attr and Mods, and syncs movement speed.
 func (p *Player) RecomputeStats() {
-	p.Stats = Recompute(p.Attr, p.Mods...)
+	p.Stats = rpg.Recompute(p.Attr, p.Mods...)
 	// Drive movement speed from Stats (so boots, buffs affect speed)
 	p.Speed = p.Stats.MoveSpeed
 }
@@ -141,7 +146,7 @@ func (p *Player) Update(dt float64, tileSize int, passable func(tx, ty int) bool
 			p.stamRecoverTimer -= dt
 		} else {
 			// Passive regen
-			TickRegen(&p.Stats, dt, p.Attr)
+			rpg.TickRegen(&p.Stats, dt, p.Attr)
 		}
 	}
 
@@ -151,6 +156,10 @@ func (p *Player) Update(dt float64, tileSize int, passable func(tx, ty int) bool
 	}
 	if p.Stats.Stamina < 0 {
 		p.Stats.Stamina = 0
+	}
+
+	if p.attackTimer > 0 {
+		p.attackTimer -= dt
 	}
 }
 
@@ -178,3 +187,37 @@ func (p *Player) Draw(screen *ebiten.Image, camX, camY float64, tileSize int) {
 	})
 	screen.DrawImage(img, op)
 }
+
+// TakeDamage applies damage to the player and clamps HP to zero.
+func (p *Player) TakeDamage(d float64) {
+	p.Stats.HP -= d
+	if p.Stats.HP < 0 {
+		p.Stats.HP = 0
+	}
+}
+
+// IsAlive returns whether player still has HP > 0.
+func (p *Player) IsAlive() bool {
+	return p.Stats.HP > 0
+}
+
+// AttackDamage returns how much damage the player deals.
+// You can mix in STR, DEX, weapons, etc.
+func (p *Player) AttackDamage() float64 {
+	return float64(p.Stats.Attack)
+}
+
+// AttackRangePx is the melee reach in pixels.
+func (p *Player) AttackRangePx() float64 {
+	return 24 // one tile edge = 32px, so 24 feels good
+}
+
+func (p *Player) CanAttack() bool {
+	return p.attackTimer <= 0
+}
+
+func (p *Player) DoAttack() {
+	p.attackTimer = p.attackCooldown
+}
+
+

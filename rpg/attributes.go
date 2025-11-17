@@ -1,4 +1,4 @@
-package player
+package rpg
 
 // Attributes are "base" character traits, usually changed by levelling or points.
 type Attributes struct {
