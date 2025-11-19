@@ -11,9 +11,7 @@ const (
 	TWater
 )
 
-// Tile & viewport sizing (move these here if you prefer,
-// but if ViewW/ViewH/TileSize are already declared in main.go keep them there.
-// If you already have these constants in main.go, **do not duplicate** them here.)
+// Tile & viewport sizing
 const (
 	TileSize   = 32
 	ViewTilesW = 20
