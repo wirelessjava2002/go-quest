@@ -41,26 +41,6 @@ import (
 	- assets/fonts/pixel.ttf -> your pixel TTF
 */
 
-const (
-	// Tile & viewport sizing
-	TileSize   = 32
-	ViewTilesW = 15 // tiles visible horizontally
-	ViewTilesH = 25 // tiles visible vertically
-
-	// Derived pixel sizes for the window/viewport
-	ViewW = ViewTilesW * TileSize // 640
-	ViewH = ViewTilesH * TileSize // 480
-)
-
-// Tile IDs — keep it small for now
-const (
-	TEmpty = iota
-	TFloor
-	TWall
-	TDoor
-	TWater
-)
-
 type WorldItem struct {
 	ID   string
 	X, Y int // tile coords
@@ -982,22 +962,6 @@ func (g *Game) tileHasItemOrEnemy(tx, ty int) bool {
 func spriteRect(tx, ty int) image.Rectangle {
 	// Convert spritesheet grid coords (tx,ty) into pixel rectangle.
 	return image.Rect(tx*TileSize, ty*TileSize, (tx+1)*TileSize, (ty+1)*TileSize)
-}
-func (g *Game) idx(x, y int) int       { return y*g.W + x }
-func (g *Game) inBounds(x, y int) bool { return x >= 0 && y >= 0 && x < g.W && y < g.H }
-func (g *Game) at(x, y int) int        { return g.Tiles[g.idx(x, y)] }
-func (g *Game) set(x, y, v int)        { g.Tiles[g.idx(x, y)] = v }
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func abs(a int) int { if a < 0 { return -a }; return a }
