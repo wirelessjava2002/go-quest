@@ -45,12 +45,12 @@ ebitenmobile bind -target android -o goquest.aar ./cmd/go-quest
 ```
 
 ## Controls
-Action	Key
-Move	W A S D / Arrow Keys
-Pick Up Item	E
-Use Selected Item	Enter / Return
-Drop Item	Q
-Cycle Inventory Left	[
-Cycle Inventory Right	]
-Attack	Space
-Quit (temporary)	Close window
+* Action	Key
+* Move	W A S D / Arrow Keys
+* Pick Up Item	E
+* Use Selected Item	Enter Return
+* Drop Item	Q
+* Cycle Inventory Left	[
+* Cycle Inventory Right	]
+* Attack	Space
+* Quit (temporary)	Close window
