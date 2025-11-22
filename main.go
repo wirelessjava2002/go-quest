@@ -45,6 +45,7 @@ type WorldItem struct {
 	ID   string
 	X, Y int // tile coords
 	Inst items.Item
+	Val  int      // NEW: gold amount for ID == "gold"
 }
 
 // Game holds all runtime state.
@@ -138,6 +139,9 @@ func NewGame() *Game {
 		// enemies
 		_ = g.Atlas.AddGridTile("enemy.slime", "tiles", 0, 2)
 		_ = g.Atlas.AddGridTile("enemy.goblin", "tiles", 1, 2)
+
+		// Gold
+		_ = g.Atlas.AddGridTile("gold", "tiles", 2, 1)
 
 	}
 
@@ -286,6 +290,27 @@ func (g *Game) spawnItem(id string, tx, ty int) {
 	})
 }
 
+// spawnGold creates a gold pile at a tile (tx, ty) with a given amount.
+func (g *Game) spawnGold(val, tx, ty int) {
+	// Ensure it's a floor tile before placing
+	if g.at(tx, ty) != TFloor {
+		return
+	}
+
+	// Ensure tile is empty (no items or enemies)
+	if g.tileHasItemOrEnemy(tx, ty) {
+		return
+	}
+
+	g.ItemsOnGround = append(g.ItemsOnGround, WorldItem{
+		ID:  "gold",
+		X:   tx,
+		Y:   ty,
+		Val: val,
+	})
+}
+
+
 // Update handles input and world updates. Runs ~60x/sec by default.
 func (g *Game) Update() error {
 	// advance time (used for water shimmer etc.)
@@ -355,14 +380,63 @@ func (g *Game) Update() error {
 		}
 	}
 
-
 	// --- Inventory interactions ---
 
+	
 	// 1) Pickup when standing on an item, press E
-	ptx := int((g.Player.X + TileSize/2) / TileSize)
-	pty := int((g.Player.Y + TileSize/2) / TileSize)
+// tile player is standing on
+ptx := int((g.Player.X + TileSize/2) / TileSize)
+pty := int((g.Player.Y + TileSize/2) / TileSize)
 
-	standingOnItem := false
+// --- GOLD AUTO-PICKUP ---
+for i := 0; i < len(g.ItemsOnGround); i++ {
+    wi := g.ItemsOnGround[i]
+    if wi.ID == "gold" && wi.X == ptx && wi.Y == pty {
+        g.Player.Gold += wi.Val
+
+        g.tooltipText = fmt.Sprintf("+%d Gold", wi.Val)
+        g.tooltipTimer = 1.0
+
+        g.ItemsOnGround = append(g.ItemsOnGround[:i], g.ItemsOnGround[i+1:]...)
+        i--
+    }
+}
+
+// --- NORMAL ITEM PICKUP (press E) ---
+standingOnItem := false
+for i := range g.ItemsOnGround {
+    wi := g.ItemsOnGround[i]
+
+    // skip gold (already picked up)
+    if wi.ID == "gold" {
+        continue
+    }
+
+    if wi.X == ptx && wi.Y == pty {
+        standingOnItem = true
+        g.tooltipText = fmt.Sprintf("Press [E] to pick up %s", wi.Inst.Name())
+        g.tooltipTimer = 1.0
+
+        if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+            if g.Inv.Add(wi.Inst) {
+                wi.Inst.OnPickup(g.Player)
+                g.ItemsOnGround = append(g.ItemsOnGround[:i], g.ItemsOnGround[i+1:]...)
+            }
+        }
+        break
+    }
+}
+
+if !standingOnItem && g.tooltipTimer > 0 {
+    g.tooltipTimer -= dt
+    if g.tooltipTimer < 0 {
+        g.tooltipTimer = 0
+        g.tooltipText = ""
+    }
+}
+
+
+	standingOnItem = false
 	for i := range g.ItemsOnGround {
 		wi := g.ItemsOnGround[i]
 		if wi.X == ptx && wi.Y == pty {
@@ -520,6 +594,8 @@ func (g *Game) drawStatsPanel(screen *ebiten.Image) {
 	ty := y + 16
 	white := color.White
 	gray := color.NRGBA{180, 180, 200, 255}
+	goldColor := color.NRGBA{255, 215, 0, 255} // bright gold/yellow
+
 
 	// Title
 	text.Draw(screen, "PLAYER", g.uiFace, tx, ty, white)
@@ -585,6 +661,10 @@ func (g *Game) drawStatsPanel(screen *ebiten.Image) {
 	text.Draw(screen, fmt.Sprintf("DEF %d", p.Stats.Defense), g.uiFace, tx+60, ty, white)
 	ty += 14
 	text.Draw(screen, fmt.Sprintf("SPD %d", int(p.Stats.MoveSpeed)), g.uiFace, tx, ty, white)
+
+	// GOLD
+	ty += 14
+	text.Draw(screen, fmt.Sprintf("GOLD %d", p.Gold), g.uiFace, tx, ty, goldColor)
 }
 
 // === UI: Inventory strip (bottom-left) ===
@@ -742,6 +822,62 @@ func (g *Game) spawnEnemiesRandom(n int, allowedTypes []string) {
 	}
 
 }
+
+
+// spawnGoldRandom scatters `count` gold piles across the dungeon.
+// minVal..maxVal defines the random amount per pile (inclusive).
+// It avoids walls, tiles that already hold an item/enemy, and tiles too close to the player.
+func (g *Game) spawnGoldRandom(count, minVal, maxVal int) {
+	if count <= 0 || maxVal < minVal {
+		return
+	}
+
+	placed := 0
+	tries := 0
+	maxTries := count * 30 // safety cap to avoid infinite loops
+
+	px := int((g.Player.X + TileSize/2) / TileSize)
+	py := int((g.Player.Y + TileSize/2) / TileSize)
+
+	for placed < count && tries < maxTries {
+		tries++
+		// pick random interior tile (avoid edges slightly)
+		x := 1 + rand.Intn(g.W-2)
+		y := 1 + rand.Intn(g.H-2)
+
+		// must be walkable floor
+		if g.at(x, y) != TFloor {
+			continue
+		}
+		// avoid player vicinity (2 tiles radius)
+		if abs(x-px) <= 2 && abs(y-py) <= 2 {
+			continue
+		}
+		// avoid tiles that already have an item or enemy
+		if g.tileHasItemOrEnemy(x, y) {
+			continue
+		}
+
+		// pick value
+		val := minVal
+		if maxVal > minVal {
+			val = minVal + rand.Intn(maxVal-minVal+1)
+		}
+
+		g.ItemsOnGround = append(g.ItemsOnGround, WorldItem{
+			ID:  "gold",
+			X:   x,
+			Y:   y,
+			Inst: nil,
+			Val: val,
+		})
+		placed++
+	}
+
+	// optional debug log
+	// log.Printf("spawnGoldRandom placed %d gold piles (%d tries)\n", placed, tries)
+}
+
 
 // helper: check if a tile already contains an item or enemy
 func (g *Game) tileHasItemOrEnemy(tx, ty int) bool {

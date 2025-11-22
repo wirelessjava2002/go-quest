@@ -25,6 +25,8 @@ type Player struct {
 
 	attackTimer float64
 	attackCooldown float64
+
+	Gold int
 }
 
 // New creates a player with a given sprite (can be nil). Speed is px/s.

@@ -118,7 +118,7 @@ func Recompute(a Attributes, mods ...Modifier) Stats {
 // TickRegen applies simple passive regeneration per second.
 func TickRegen(s *Stats, dt float64, a Attributes) {
 	// Example regen rates (tune):
-	hpRegen := 0.01*float64(s.HPMax) + float64(a.Vit)*0.05
+	hpRegen := 0.005*float64(s.HPMax) + float64(a.Vit)*0.05
 	mpRegen := 0.01*float64(s.MPMax) + float64(a.Wis)*0.04
 	stamRegen := 0.14*float64(s.StaminaMax) + float64(a.Dex)*0.08
 

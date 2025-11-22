@@ -105,18 +105,36 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for _, it := range g.ItemsOnGround {
 			ix := float64(it.X*TileSize) - g.CamXpx
 			iy := float64(it.Y*TileSize) - g.CamYpx
+
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(ix, iy)
+
+			// --- GOLD DRAWING (uses atlas sprite at 2,1) ---
+			if it.ID == "gold" {
+				if img, ok := g.Atlas.Get("gold"); ok && img != nil {
+					screen.DrawImage(img, op)
+				} else {
+					// fallback color if atlas missing
+					fb := ebiten.NewImage(TileSize, TileSize)
+					fb.Fill(color.NRGBA{255, 215, 0, 255}) // gold color
+					screen.DrawImage(fb, op)
+				}
+				continue
+			}
+
+			// --- NORMAL ITEMS ---
 			if it.Inst != nil && it.Inst.Icon() != nil {
 				screen.DrawImage(it.Inst.Icon(), op)
 				continue
 			}
-			// fallback rectangle
+
+			// fallback if item has no icon
 			fb := ebiten.NewImage(TileSize, TileSize)
 			fb.Fill(color.NRGBA{200, 200, 0, 255})
 			screen.DrawImage(fb, op)
 		}
 	}
+
 
 	// Player
 	{
@@ -135,13 +153,54 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 
-	// Draw enemies if you have them
+	// Draw enemies 
 	// Assume g.Enemies []enemies.Enemy with Draw(screen, camX, camY) method
 	if g.Enemies != nil {
-		for _, e := range g.Enemies {
-			e.Draw(screen, g.CamXpx, g.CamYpx)
+	for _, e := range g.Enemies {
+		// draw the enemy normally
+		e.Draw(screen, g.CamXpx, g.CamYpx)
+
+		// draw floating HP bar above enemy
+		stats := e.Stats()
+		hp := stats.HP
+		hpMax := float64(stats.HPMax)
+
+		if hpMax > 0 {
+			pct := hp / hpMax
+			if pct < 0 { pct = 0 }
+			if pct > 1 { pct = 1 }
+
+			// world position → screen coords
+			sx := e.X() - g.CamXpx
+			sy := e.Y() - g.CamYpx
+
+			// bar size & placement
+			barW := 28
+			barH := 4
+			bx := sx - float64(barW)/2                   // center horizontally
+			by := sy - float64(TileSize)/2 - 2          // above the head
+
+			// background (dark bar)
+			bg := ebiten.NewImage(barW, barH)
+			bg.Fill(color.NRGBA{40, 40, 40, 200})
+			opbg := &ebiten.DrawImageOptions{}
+			opbg.GeoM.Translate(bx, by)
+			screen.DrawImage(bg, opbg)
+
+			// foreground (red health)
+			fw := int(float64(barW) * pct)
+			if fw > 0 {
+				fg := ebiten.NewImage(fw, barH)
+				fg.Fill(color.NRGBA{200, 40, 40, 255})
+				opfg := &ebiten.DrawImageOptions{}
+				opfg.GeoM.Translate(bx, by)
+				screen.DrawImage(fg, opfg)
+			}
 		}
 	}
+
+	}
+
 
 	// === UI: Player stats panel (top-right corner) ===
 	g.drawStatsPanel(screen)
