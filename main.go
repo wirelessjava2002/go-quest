@@ -842,8 +842,8 @@ func (g *Game) spawnGoldRandom(count, minVal, maxVal int) {
 	for placed < count && tries < maxTries {
 		tries++
 		// pick random interior tile (avoid edges slightly)
-		x := 1 + rand.Intn(g.W-2)
-		y := 1 + rand.Intn(g.H-2)
+		x := 1 + rand.IntN(g.W-2)
+		y := 1 + rand.IntN(g.H-2)
 
 		// must be walkable floor
 		if g.at(x, y) != TFloor {
@@ -861,7 +861,7 @@ func (g *Game) spawnGoldRandom(count, minVal, maxVal int) {
 		// pick value
 		val := minVal
 		if maxVal > minVal {
-			val = minVal + rand.Intn(maxVal-minVal+1)
+			val = minVal + rand.IntN(maxVal-minVal+1)
 		}
 
 		g.ItemsOnGround = append(g.ItemsOnGround, WorldItem{
